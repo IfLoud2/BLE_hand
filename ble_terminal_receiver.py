@@ -27,9 +27,13 @@ async def run():
             for char in service.characteristics:
                 print(f"  - [Char] {char.uuid} ({','.join(char.properties)})")
 
-        # Subscribing to the characteristic
         def handle_notify(_, data):
-            print("🔄", data.decode("utf-8"))
+            # Print raw hex to debug binary data
+            print(f"🔄 RAW (hex): {data.hex()} | Length: {len(data)}")
+            try:
+                print(f"   ASCII: {data.decode('utf-8')}")
+            except:
+                pass
 
         await client.start_notify(CHARACTERISTIC_UUID, handle_notify)
         
