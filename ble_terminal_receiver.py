@@ -20,10 +20,18 @@ async def run():
     async with BleakClient(target.address) as client:
         print(f"✅ Connected to {target.name}")
 
-        def handle_notify(_, data):
-            print("🔄", data.decode("utf-8"))
+        print("🔍 Listing Services and Characteristics...")
+        for service in client.services:
+            print(f"[Service] {service.uuid} ({service.description})")
+            for char in service.characteristics:
+                print(f"  - [Char] {char.uuid} ({','.join(char.properties)})")
 
-        await client.start_notify(CHARACTERISTIC_UUID, handle_notify)
+        # Commented out subscription until we confirm the UUID
+        # await client.start_notify(CHARACTERISTIC_UUID, handle_notify)
+        
+        # print("📡 Listening for notifications. Press Ctrl+C to stop.")
+        # while True:
+        #     await asyncio.sleep(1)
 
         print("📡 Listening for notifications. Press Ctrl+C to stop.")
         while True:
