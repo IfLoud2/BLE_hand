@@ -3,8 +3,9 @@ from bleak import BleakScanner, BleakClient
 
 # Adapted to match the Nordic UART Service used by the XIAO nRF52840
 # Original request had generic UUIDs, but we use the specific ones for this project.
-SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-CHARACTERISTIC_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+# Corrected UUIDs based on device scan
+SERVICE_UUID = "00001101-0000-1000-8000-00805f9b34fb"
+CHARACTERISTIC_UUID = "00002101-0000-1000-8000-00805f9b34fb"
 
 async def run():
     print("🔍 Scanning for BLE devices...")
@@ -26,12 +27,15 @@ async def run():
             for char in service.characteristics:
                 print(f"  - [Char] {char.uuid} ({','.join(char.properties)})")
 
-        # Commented out subscription until we confirm the UUID
-        # await client.start_notify(CHARACTERISTIC_UUID, handle_notify)
+        # Subscribing to the characteristic
+        def handle_notify(_, data):
+            print("🔄", data.decode("utf-8"))
+
+        await client.start_notify(CHARACTERISTIC_UUID, handle_notify)
         
-        # print("📡 Listening for notifications. Press Ctrl+C to stop.")
-        # while True:
-        #     await asyncio.sleep(1)
+        print("📡 Listening for notifications. Press Ctrl+C to stop.")
+        while True:
+            await asyncio.sleep(1)
 
         print("📡 Listening for notifications. Press Ctrl+C to stop.")
         while True:

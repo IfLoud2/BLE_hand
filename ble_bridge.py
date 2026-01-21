@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 # Constants for Nordic UART Service
 # The XIAO documentation/User request confirms these UUIDs
-UART_SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E" # TX is what the central (PC) subscribes to
+UART_SERVICE_UUID = "00001101-0000-1000-8000-00805f9b34fb"
+UART_TX_CHAR_UUID = "00002101-0000-1000-8000-00805f9b34fb"
 
 class BLEBridge:
     def __init__(self, target_name: str, host: str, port: int, protocol: str, debug: bool):
