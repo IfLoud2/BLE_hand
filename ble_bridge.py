@@ -69,6 +69,12 @@ class BLEBridge:
                 logger.error(f"Unexpected error in main loop: {e}", exc_info=True)
                 await asyncio.sleep(5)
 
+import struct
+
+# ... (Previous imports)
+
+# ...
+
     async def ble_loop(self):
         """Inner loop for BLE connection and handling."""
         while self.running:
@@ -83,22 +89,32 @@ class BLEBridge:
 
             def notification_handler(sender: BleakGATTCharacteristic, data: bytearray):
                 try:
-                    text_data = data.decode('utf-8').strip()
-                    if self.debug:
-                        logger.info(f"RX: {text_data}")
-                    
-                    # Validate JSON
-                    try:
-                        json_data = json.loads(text_data)
-                        # Ensure keys exist
-                        if 'r' in json_data and 'p' in json_data and 'y' in json_data:
-                            # Forward data
-                            asyncio.create_task(self.forward_data(text_data))
-                    except json.JSONDecodeError:
+                    # Handle binary data (24 bytes -> 6 floats)
+                    if len(data) == 24:
+                        v = struct.unpack('<6f', data)
+                        # Assumed mapping: r, p, y are the first 3 or specific ones. 
+                        # We send all as a list or map to r,p,y if sure.
+                        # sending raw object for flexibility
+                        payload = {
+                            "r": v[0], "p": v[1], "y": v[2],
+                            "ax": v[3], "ay": v[4], "az": v[5]
+                        }
                         if self.debug:
-                           logger.warning(f"Received non-JSON data: {text_data}")
+                            logger.info(f"RX: {payload}")
+                        
+                        json_data = json.dumps(payload)
+                        asyncio.create_task(self.forward_data(json_data))
+                    else:
+                        # Fallback to text if strictly text
+                        text_data = data.decode('utf-8').strip()
+                        if self.debug:
+                            logger.info(f"RX (Text): {text_data}")
+                        json_data = json.loads(text_data)
+                        asyncio.create_task(self.forward_data(text_data))
+
                 except Exception as ex:
-                    logger.error(f"Error handling notification: {ex}")
+                    if self.debug:
+                        logger.warning(f"Error handling data: {ex}")
 
             def disconnect_callback(client):
                 logger.warning("BLE Disconnected!")

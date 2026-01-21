@@ -1,8 +1,7 @@
 import asyncio
+import struct
 from bleak import BleakScanner, BleakClient
 
-# Adapted to match the Nordic UART Service used by the XIAO nRF52840
-# Original request had generic UUIDs, but we use the specific ones for this project.
 # Corrected UUIDs based on device scan
 SERVICE_UUID = "00001101-0000-1000-8000-00805f9b34fb"
 CHARACTERISTIC_UUID = "00002101-0000-1000-8000-00805f9b34fb"
@@ -10,10 +9,8 @@ CHARACTERISTIC_UUID = "00002101-0000-1000-8000-00805f9b34fb"
 async def run():
     print("🔍 Scanning for BLE devices...")
     devices = await BleakScanner.discover()
-    for d in devices:
-        print(f"- {d.name} ({d.address})")
-
     target = next((d for d in devices if d.name == "XIAO_IMU"), None)
+    
     if not target:
         print("❌ XIAO_IMU not found.")
         return
@@ -21,26 +18,20 @@ async def run():
     async with BleakClient(target.address) as client:
         print(f"✅ Connected to {target.name}")
 
-        print("🔍 Listing Services and Characteristics...")
-        for service in client.services:
-            print(f"[Service] {service.uuid} ({service.description})")
-            for char in service.characteristics:
-                print(f"  - [Char] {char.uuid} ({','.join(char.properties)})")
-
         def handle_notify(_, data):
-            # Print raw hex to debug binary data
-            print(f"🔄 RAW (hex): {data.hex()} | Length: {len(data)}")
-            try:
-                print(f"   ASCII: {data.decode('utf-8')}")
-            except:
-                pass
+            # 24 bytes = 6 floats x 4 bytes
+            if len(data) == 24:
+                try:
+                    # Unpack 6 floats (Little Endian)
+                    v = struct.unpack('<6f', data)
+                    print(f"📊 Decoded (6 floats): {v[0]:.2f}, {v[1]:.2f}, {v[2]:.2f}, {v[3]:.2f}, {v[4]:.2f}, {v[5]:.2f}")
+                except Exception as e:
+                    print(f"❌ Decode Error: {e}")
+            else:
+                print(f"🔄 RAW ({len(data)}b): {data.hex()}")
 
         await client.start_notify(CHARACTERISTIC_UUID, handle_notify)
         
-        print("📡 Listening for notifications. Press Ctrl+C to stop.")
-        while True:
-            await asyncio.sleep(1)
-
         print("📡 Listening for notifications. Press Ctrl+C to stop.")
         while True:
             await asyncio.sleep(1)
