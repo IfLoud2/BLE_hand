@@ -23,9 +23,13 @@ graph LR
    cd BLE_hand
    ```
 
-2. Installer les dépendances :
    ```bash
    pip install -r requirements.txt
+   ```
+   
+   Ou manuellement :
+   ```bash
+   pip install bleak websockets
    ```
 
 ## Usage
