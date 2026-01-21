@@ -1,0 +1,179 @@
+#include <ArduinoBLE.h>
+#include <LSM6DS3.h>
+#include <Wire.h>
+#include <math.h>
+
+// ==========================================
+// CONFIGURATION
+// ==========================================
+
+// Service & Characteristic UUIDs (Generic Serial)
+BLEService imuService("1101");
+BLECharacteristic imuChar("2101", BLERead | BLENotify, 24); // 6 floats * 4 bytes = 24 bytes
+
+// IMU Settings
+LSM6DS3 myIMU(I2C_MODE, 0x6A);
+
+// Filter Constants
+const float alpha = 0.98f;         // Complementary filter weight
+const float G_NORM_TARGET = 1.0f;  // Expected gravity norm (g)
+const float EPS_A = 0.03f;         // Accel norm tolerance for stationary detection
+const float EPS_W = 0.8f;          // Gyro norm tolerance (deg/s)
+const float BETA = 0.01f;          // Bias learning rate
+const float GZ_DEADBAND = 0.6f;    // Yaw deadband (deg/s)
+
+// Pin for Yaw Reset (Optional)
+#define YAW_RESET_PIN 0
+
+// ==========================================
+// GLOBAL VARIABLES
+// ==========================================
+
+// Orientation State
+float roll  = 0.0f;
+float pitch = 0.0f;
+float yaw   = 0.0f;
+
+// Gyro Z Bias
+float bz = 0.0f;
+
+// Timing
+uint32_t lastUs = 0;
+
+// ==========================================
+// SETUP
+// ==========================================
+
+void calibrateBiasZ() {
+  const int N = 600; // ~3s
+  float sum = 0.0f;
+  Serial.println("Calibrating Gyro Z... Keep still.");
+  for (int i = 0; i < N; i++) {
+    sum += myIMU.readFloatGyroZ();
+    delay(5);
+  }
+  bz = sum / N;
+  Serial.print("Bias Z encoded: ");
+  Serial.println(bz);
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(YAW_RESET_PIN, INPUT_PULLUP);
+
+  // 1. Init IMU
+  if (myIMU.begin() != 0) {
+    Serial.println("IMU Error!");
+    while(1);
+  }
+
+  // 2. Calibrate
+  calibrateBiasZ();
+  yaw = 0.0f;
+  lastUs = micros();
+
+  // 3. Init BLE
+  if (!BLE.begin()) {
+    Serial.println("BLE Error!");
+    while(1);
+  }
+
+  BLE.setLocalName("XIAO_IMU");
+  BLE.setAdvertisedService(imuService);
+  imuService.addCharacteristic(imuChar);
+  BLE.addService(imuService);
+  BLE.advertise();
+
+  Serial.println("BLE Active. Waiting for connections...");
+}
+
+// ==========================================
+// LOOP
+// ==========================================
+
+void loop() {
+  BLEDevice central = BLE.central();
+  
+  // Note: We need to run the filter logic CONTINUOUSLY to maintain accurate orientation,
+  // even if no BLE device is connected. However, standard BLE examples often block.
+  // We will structure this to be non-blocking or just run the logic inside the loop.
+  // Because central.connected() can be blocking in some flows, we handle it carefully.
+  // Actually, standard ArduinoBLE 'central' check is non-blocking until we enter a loop.
+  
+  // To ensure the filter runs smoothly, we calculate logic every loop iteration.
+  // If connected, we send data.
+
+  // --- 1. Time Delta ---
+  uint32_t nowUs = micros();
+  float dt = (nowUs - lastUs) * 1e-6f;
+  lastUs = nowUs;
+
+  // Safety guard for dt
+  if (dt <= 0.0f || dt > 0.1f) {
+    // If dt is too large (e.g. after a blocking delay), skip this step to avoid jumps
+    return;
+  }
+
+  // --- 2. Read Sensors ---
+  float ax = myIMU.readFloatAccelX();
+  float ay = myIMU.readFloatAccelY();
+  float az = myIMU.readFloatAccelZ();
+  float gx = myIMU.readFloatGyroX();
+  float gy = myIMU.readFloatGyroY();
+  float gz = myIMU.readFloatGyroZ();
+
+  // --- 3. Compute Roll / Pitch (Accel fallback) ---
+  float roll_acc  = atan2f(ay, az) * RAD_TO_DEG;
+  float pitch_acc = atan2f(-ax, sqrtf(ay * ay + az * az)) * RAD_TO_DEG; // Standard formula
+
+  // --- 4. Complementary Filter ---
+  roll  = alpha * (roll  + gx * dt) + (1.0f - alpha) * roll_acc;
+  pitch = alpha * (pitch + gy * dt) + (1.0f - alpha) * pitch_acc;
+
+  // --- 5. Stationary Detection & Bias Update ---
+  float a_norm = sqrtf(ax * ax + ay * ay + az * az);
+  float w_norm = sqrtf(gx * gx + gy * gy + gz * gz);
+  bool stationary = (fabsf(a_norm - G_NORM_TARGET) < EPS_A) && (w_norm < EPS_W);
+
+  if (stationary) {
+    bz = (1.0f - BETA) * bz + BETA * gz;
+  }
+
+  // --- 6. Yaw Integration ---
+  float gz_corr = gz - bz;
+  if (fabsf(gz_corr) < GZ_DEADBAND) {
+    gz_corr = 0.0f;
+  }
+  yaw += gz_corr * dt;
+
+  // --- 7. Reset Handling ---
+  if (digitalRead(YAW_RESET_PIN) == LOW) {
+    yaw = 0.0f;
+  }
+
+  // --- 8. BLE Transmission (Send at restricted rate, e.g. 20Hz) ---
+  // We use a non-blocking timer for sending to avoid flooding
+  static uint32_t lastSendMs = 0;
+  if (millis() - lastSendMs > 50) { // 20Hz
+    lastSendMs = millis();
+    
+    // Debug Output
+    // Serial.print("R: "); Serial.print(roll);
+    // Serial.print(" P: "); Serial.print(pitch);
+    // Serial.print(" Y: "); Serial.println(yaw);
+
+    if (central && central.connected()) {
+      // Pack Data: [Roll, Pitch, Yaw, Ax, Ay, Az] (24 bytes)
+      // Sending calculated angles + raw accel for visualization/debug
+      float data[6];
+      data[0] = roll;
+      data[1] = pitch;
+      data[2] = yaw;
+      data[3] = ax;
+      data[4] = ay;
+      data[5] = az;
+      
+      imuChar.writeValue((byte*)data, 24);
+    }
+  }
+}
