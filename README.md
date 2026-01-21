@@ -10,8 +10,8 @@ Il inclut :
 
 ```mermaid
 graph LR
-    A[XIAO nRF52840] -- BLE (Binary Struct) --> B[PC Windows (ble_bridge.py)]
-    B -- WebSocket (JSON) --> C[Raspberry Pi / Client Neural Network]
+    A["XIAO nRF52840"] -- "BLE (Binary Struct)" --> B["PC Windows (ble_bridge.py)"]
+    B -- "WebSocket (JSON)" --> C["Raspberry Pi / Client Neural Network"]
 ```
 
 ## Structure du Projet
