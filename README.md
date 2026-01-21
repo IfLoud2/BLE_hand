@@ -1,69 +1,78 @@
 # BLE Hand Bridge
 
-Ce projet contient un script Python permettant de faire le pont entre une carte XIAO nRF52840 Sense (BLE) et un autre système (Raspberry Pi, PC, etc.) via WebSocket.
+Ce projet assure la communication entre un capteur IMU (XIAO nRF52840 Sense) et un système hôte (PC/Raspberry Pi) via Bluetooth Low Energy (BLE).
+
+Il inclut :
+1. **Firmware Arduino** : Acquisition des données IMU, fusion de capteurs (Filtre Complémentaire), et transmission BLE.
+2. **Pont Python** : Réception des données BLE sur Windows et retransmission via WebSocket pour visualisation.
 
 ## Architecture
 
 ```mermaid
 graph LR
-    A[XIAO nRF52840] -- BLE (UART Service) --> B[PC Windows (ble_bridge.py)]
-    B -- WebSocket --> C[Raspberry Pi / Client]
+    A[XIAO nRF52840] -- BLE (Binary Struct) --> B[PC Windows (ble_bridge.py)]
+    B -- WebSocket (JSON) --> C[Raspberry Pi / Client Neural Network]
 ```
 
-## Prérequis
+## Structure du Projet
 
-- Python 3.10+
-- Un adaptateur Bluetooth compatible (intégré au PC Windows)
+- `ble_bridge.py` : Script principal. Connecte le BLE et transmet en WebSocket.
+- `ble_terminal_receiver.py` : Outil de diagnostic pour vérifier les données brutes dans le terminal.
+- `XIAO_BLE_IMU/` : Code source Arduino (`.ino`) à flasher sur le microcontrôleur.
 
 ## Installation
 
-1. Cloner le repo :
-   ```bash
-   git clone <url_du_repo>
-   cd BLE_hand
-   ```
+### Prérequis
+- Python 3.10+
+- Windows (avec Bluetooth actif)
 
-   ```bash
-   pip install -r requirements.txt
-   ```
-   
-   Ou manuellement :
-   ```bash
-   pip install bleak websockets
-   ```
+### Dépendances Python
+```bash
+pip install -r requirements.txt
+# Ou manuellement :
+pip install bleak websockets
+```
 
 ## Usage
 
-Lancer le script de pont :
+### 1. Flasher le XIAO
+Ouvrir `XIAO_BLE_IMU/XIAO_BLE_IMU.ino` avec l'IDE Arduino et téléverser sur la carte XIAO nRF52840 Sense.
+> **Note** : Laisser le capteur immobile pendant 3 secondes au démarrage pour la calibration du gyroscope.
 
+### 2. Tester la réception (Diagnostic)
+Pour voir si les données arrivent correctement :
 ```bash
-python ble_bridge.py --host <IP_DU_RPI> --port 8765 --debug
+python ble_terminal_receiver.py
 ```
+*Devrait afficher des valeurs lisibles : `32.40, -0.57, 26.76 ...`*
 
-### Options
+### 3. Lancer le Pont (Production)
+```bash
+python ble_bridge.py --host <IP_CIBLE> --port 8765
+```
+*Options :*
+- `--host` : IP du serveur WebSocket (ex: `192.168.1.50`).
+- `--debug` : Affiche les logs détaillés.
 
-- `--target` : Nom du périphérique BLE à scanner (Défaut: "XIAO_IMU")
-- `--host` : IP du serveur WebSocket destination (Défaut: "localhost")
-- `--port` : Port destination (Défaut: 8765)
-- `--debug` : Affiche les trames reçues dans la console
+## Protocole de Données
 
-## Format des données
+### BLE (XIAO -> PC)
+Le service utilisé est un service série générique :
+- **Service UUID** : `00001101-0000-1000-8000-00805f9b34fb`
+- **Char UUID** : `00002101-0000-1000-8000-00805f9b34fb`
 
-Le XIAO doit envoyer des données JSON sur le service UART Nordic (`6E400001-...`), charactéristique TX (`6E400003-...`).
+Format : **Binaire (Little Endian), 24 octets**
+`[Roll, Pitch, Yaw, Ax, Ay, Az]` (6 x float 32-bit).
 
-Format attendu :
+### WebSocket (PC -> Client)
+Les données sont converties en JSON avant d'être envoyées :
 ```json
-{"r": -0.23, "p": 1.02, "y": 4.55}
-```
-
-## Logs
-
-L'application utilise le module `logging` de Python pour afficher des infos claires avec timestamp.
-
-Exemple de sortie :
-```text
-2023-10-27 10:00:01 - [INFO] - Starting BLE Bridge...
-2023-10-27 10:00:05 - [INFO] - Found device: XIAO_IMU...
-2023-10-27 10:00:06 - [INFO] - Connected to XIAO_IMU
-2023-10-27 10:00:06 - [INFO] - RX: {"r": 0.1, "p": 0.2, "y": 0.0}
+{
+  "r": 32.4,
+  "p": -0.5,
+  "y": 26.7,
+  "ax": -0.01,
+  "ay": 0.54,
+  "az": 0.87
+}
 ```
